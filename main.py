@@ -46,36 +46,53 @@ async def webhook_router(req: Request):
     data = await req.json()
     log_payload(data)
 
-    # anti-loop: se já veio marcado, não reenviar
+    # anti-loop
     if data.get("source") == "n8n":
         return {"ok": True, "routed": False, "reason": "loop_protection"}
 
-    # dedupe por messageId
+    # dedupe
     message_id = data.get("messageId", "")
     if not dedupe_ok(message_id):
         return {"ok": True, "routed": False, "reason": "duplicate", "messageId": message_id}
 
-    # ===== CONDIÇÃO: enviada e recebida por você mesmo =====
-    connected_phone = data.get("connectedPhone")             # seu número da instância
-    from_me = data.get("fromMe")                             # true se você enviou
-    chat_id = (data.get("chat") or {}).get("id")             # chat destino
+    # ===== REGRAS (AS DUAS) =====
+    from_me = data.get("fromMe")                 # precisa ser True
+    from_api = data.get("fromApi")               # precisa ser False
+    connected_phone = data.get("connectedPhone") # seu número na instância
+    chat_id = (data.get("chat") or {}).get("id") # destino
 
-    is_self_chat = (from_me is True) and (connected_phone is not None) and (chat_id == connected_phone)
+    # (1) você -> você
+    is_self_chat = (connected_phone is not None) and (chat_id == connected_phone)
 
-    if not is_self_chat:
+    # (2) foi você e não via API
+    is_manual = (from_me is True) and (from_api is False)
+
+    # condição final
+    should_route = is_self_chat and is_manual
+
+    if not should_route:
         return {
             "ok": True,
             "routed": False,
-            "reason": "not_self_chat",
+            "reason": "blocked",
+            "isSelfChat": is_self_chat,
+            "isManual": is_manual,
             "fromMe": from_me,
+            "fromApi": from_api,
             "connectedPhone": connected_phone,
             "chatId": chat_id,
             "messageId": message_id
         }
 
+    # opcional: só encaminhar se tiver texto
+    # se quiser ativar, descomente:
+    # text = (data.get("msgContent") or {}).get("conversation")
+    # if not text:
+    #     return {"ok": True, "routed": False, "reason": "no_text", "messageId": message_id}
+
     # encaminha pro n8n
     async with httpx.AsyncClient(timeout=15) as client:
-        data["source"] = "router"
+        data["source"] = "router"  # marca origem
         try:
             r = await client.post(N8N_WEBHOOK_URL, json=data)
         except Exception as e:
@@ -84,4 +101,4 @@ async def webhook_router(req: Request):
         if r.status_code >= 300:
             raise HTTPException(status_code=502, detail=f"n8n returned {r.status_code}: {r.text}")
 
-    return {"ok": True, "routed": True, "reason": "self_chat", "messageId": message_id}
+    return {"ok": True, "routed": True, "reason": "manual_self_chat", "messageId": message_id}
