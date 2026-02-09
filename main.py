@@ -7,7 +7,7 @@ from typing import Dict, Any
 app = FastAPI(title="Webhook Router", version="1.0.0")
 
 # ===== CONFIG =====
-N8N_WEBHOOK_URL = "https://prompthub.app.n8n.cloud/webhook-test/Receber-mensagem"
+N8N_WEBHOOK_URL = "https://prompthub.app.n8n.cloud/webhook/Receber-mensagem"
 LOG_TO_CONSOLE = True
 
 # dedupe simples em memória
